@@ -769,8 +769,10 @@ void utils::set_common_curl_options(CURL * handle, configcontainer * cfg) {
 	curl_easy_setopt(handle, CURLOPT_ENCODING, "gzip, deflate");
 	curl_easy_setopt(handle, CURLOPT_TIMEOUT, dl_timeout);
 
-	if (proxy != "")
+	if (proxy != ""){
 		curl_easy_setopt(handle, CURLOPT_PROXY, proxy.c_str());
+        curl_easy_setopt(handle, CURLOPT_HTTPPROXYTUNNEL ,"1");
+    }
 	if (proxyauth != "") {
 		curl_easy_setopt(handle, CURLOPT_PROXYAUTH, get_proxy_auth_method(proxyauthmethod));
 		curl_easy_setopt(handle, CURLOPT_PROXYUSERPWD, proxyauth.c_str());

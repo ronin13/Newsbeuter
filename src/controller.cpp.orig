@@ -38,7 +38,7 @@
 #include <sys/stat.h>
 #include <pwd.h>
 
-#include <ncurses.h>
+#include <ncursesw/ncurses.h>
 
 #include <libxml/xmlversion.h>
 #include <libxml/parser.h>

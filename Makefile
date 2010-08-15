@@ -1,5 +1,5 @@
 # important directories
-prefix?=/usr/local
+prefix?=/usr
 mandir?=$(prefix)/share/man
 datadir?=$(prefix)/share
 localedir?=$(datadir)/locale
@@ -11,7 +11,7 @@ CXX=c++
 # compiler and linker flags
 DEFINES=-DLOCALEDIR=\"$(localedir)\"
 WARNFLAGS=-Wall -Wextra
-CXXFLAGS+=-ggdb -Iinclude -Istfl -Ifilter -I. -Irss $(WARNFLAGS) $(DEFINES)
+CXXFLAGS+=-Iinclude -Istfl -Ifilter -I. -Irss $(WARNFLAGS) $(DEFINES)
 LDFLAGS+=-L.
 
 PACKAGE=newsbeuter
