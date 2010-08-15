@@ -1,3 +1,6 @@
+-- Fork:
+ * Added support for curl proxy tunneling without which it fails with transparent proxies like polipo
+
 README for newsbeuter
 =====================
 Andreas Krennmair <ak@newsbeuter.org>
