@@ -78,22 +78,103 @@ void omg_a_child_died(int /* sig */) {
 }
 
 controller::controller() : v(0), urlcfg(0), rsscache(0), url_file("urls"), cache_file("cache.db"), config_file("config"), queue_file("queue"), refresh_on_start(false), api(0) {
-	char * cfgdir;
-	if (!(cfgdir = ::getenv("HOME"))) {
+}
+
+
+/**
+ * \brief Try to setup XDG style dirs.
+ *
+ * returns false, if that fails
+ */
+bool controller::setup_dirs_xdg(const char *env_home) {
+	const char *env_xdg_config;
+	const char *env_xdg_data;
+	std::string xdg_config_dir;
+	std::string xdg_data_dir;
+
+	env_xdg_config = ::getenv("XDG_CONFIG_HOME");
+	if (env_xdg_config) {
+		xdg_config_dir = env_xdg_config;
+	} else {
+		xdg_config_dir = env_home;
+		xdg_config_dir.append(NEWSBEUTER_PATH_SEP);
+		xdg_config_dir.append(".config");
+	}
+
+	env_xdg_data = ::getenv("XDG_DATA_HOME");
+	if (env_xdg_data) {
+		xdg_data_dir = env_xdg_data;
+	} else {
+		xdg_data_dir = env_home;
+		xdg_data_dir.append(NEWSBEUTER_PATH_SEP);
+		xdg_data_dir.append(".local");
+		xdg_data_dir.append(NEWSBEUTER_PATH_SEP);
+		xdg_data_dir.append("share");
+	}
+
+	xdg_config_dir.append(NEWSBEUTER_PATH_SEP);
+	xdg_config_dir.append(NEWSBEUTER_SUBDIR_XDG);
+
+	xdg_data_dir.append(NEWSBEUTER_PATH_SEP);
+	xdg_data_dir.append(NEWSBEUTER_SUBDIR_XDG);
+
+	if (access(xdg_config_dir.c_str(), R_OK | X_OK) != 0)
+	{
+		std::cout << utils::strprintf(_("XDG: configuration directory '%s' not accessible, using '%s' instead."), xdg_config_dir.c_str(), config_dir.c_str()) << std::endl;
+		return false;
+	}
+	if (access(xdg_data_dir.c_str(), R_OK | X_OK | W_OK) != 0)
+	{
+		std::cout << utils::strprintf(_("XDG: data directory '%s' not accessible, using '%s' instead."), xdg_data_dir.c_str(), config_dir.c_str()) << std::endl;
+		return false;
+	}
+
+	config_dir = xdg_config_dir;
+
+	/* in config */
+	url_file = config_dir + std::string(NEWSBEUTER_PATH_SEP) + url_file;
+	config_file = config_dir + std::string(NEWSBEUTER_PATH_SEP) + config_file;
+
+	/* in data */
+	cache_file = xdg_data_dir + std::string(NEWSBEUTER_PATH_SEP) + cache_file;
+	lock_file = cache_file + LOCK_SUFFIX;
+	queue_file = xdg_data_dir + std::string(NEWSBEUTER_PATH_SEP) + queue_file;
+	searchfile = utils::strprintf("%s%shistory.search", xdg_data_dir.c_str(), NEWSBEUTER_PATH_SEP);
+	cmdlinefile = utils::strprintf("%s%shistory.cmdline", xdg_data_dir.c_str(), NEWSBEUTER_PATH_SEP);
+
+	return true;
+}
+
+void controller::setup_dirs() {
+	const char * env_home;
+	if (!(env_home = ::getenv("HOME"))) {
 		struct passwd * spw = ::getpwuid(::getuid());
 		if (spw) {
-			cfgdir = spw->pw_dir;
+			env_home = spw->pw_dir;
 		} else {
 			std::cout << _("Fatal error: couldn't determine home directory!") << std::endl;
 			std::cout << utils::strprintf(_("Please set the HOME environment variable or add a valid user for UID %u!"), ::getuid()) << std::endl;
 			::exit(EXIT_FAILURE);
 		}
 	}
-	config_dir = cfgdir;
 
+	config_dir = env_home;
 	config_dir.append(NEWSBEUTER_PATH_SEP);
 	config_dir.append(NEWSBEUTER_CONFIG_SUBDIR);
+
+	if (setup_dirs_xdg(env_home))
+		return;
+
 	mkdir(config_dir.c_str(),0700); // create configuration directory if it doesn't exist
+
+	url_file = config_dir + std::string(NEWSBEUTER_PATH_SEP) + url_file;
+	cache_file = config_dir + std::string(NEWSBEUTER_PATH_SEP) + cache_file;
+	lock_file = cache_file + LOCK_SUFFIX;
+	config_file = config_dir + std::string(NEWSBEUTER_PATH_SEP) + config_file;
+	queue_file = config_dir + std::string(NEWSBEUTER_PATH_SEP) + queue_file;
+
+	searchfile = utils::strprintf("%s%shistory.search", config_dir.c_str(), NEWSBEUTER_PATH_SEP);
+	cmdlinefile = utils::strprintf("%s%shistory.cmdline", config_dir.c_str(), NEWSBEUTER_PATH_SEP);
 }
 
 controller::~controller() {
@@ -116,11 +197,7 @@ void controller::set_view(view * vv) {
 void controller::run(int argc, char * argv[]) {
 	int c;
 
-	url_file = config_dir + std::string(NEWSBEUTER_PATH_SEP) + url_file;
-	cache_file = config_dir + std::string(NEWSBEUTER_PATH_SEP) + cache_file;
-	lock_file = cache_file + LOCK_SUFFIX;
-	config_file = config_dir + std::string(NEWSBEUTER_PATH_SEP) + config_file;
-	queue_file = config_dir + std::string(NEWSBEUTER_PATH_SEP) + queue_file;
+	setup_dirs();
 
 	::signal(SIGINT, ctrl_c_action);
 	::signal(SIGPIPE, ignore_signal);
@@ -255,9 +332,6 @@ void controller::run(int argc, char * argv[]) {
 		}
 	}
 
-	std::string searchfile = utils::strprintf("%s%shistory.search", config_dir.c_str(), NEWSBEUTER_PATH_SEP);
-	std::string cmdlinefile = utils::strprintf("%s%shistory.cmdline", config_dir.c_str(), NEWSBEUTER_PATH_SEP);
-
 	if (!silent)
 		std::cout << _("Loading configuration...");
 	std::cout.flush();
@@ -337,9 +411,6 @@ void controller::run(int argc, char * argv[]) {
 	std::string type = cfg.get_configvalue("urls-source");
 	if (type == "local") {
 		urlcfg = new file_urlreader(url_file);
-	} else if (type == "bloglines") {
-		urlcfg = new bloglines_urlreader(&cfg);
-		real_offline_mode = offline_mode;
 	} else if (type == "opml") {
 		urlcfg = new opml_urlreader(&cfg);
 		real_offline_mode = offline_mode;
@@ -384,8 +455,6 @@ void controller::run(int argc, char * argv[]) {
 		std::string msg;
 		if (type == "local") {
 			msg = utils::strprintf(_("Error: no URLs configured. Please fill the file %s with RSS feed URLs or import an OPML file."), url_file.c_str());
-		} else if (type == "bloglines") {
-			msg = utils::strprintf(_("It looks like you haven't configured any feeds in your bloglines account. Please do so, and try again."));
 		} else if (type == "opml") {
 			msg = utils::strprintf(_("It looks like the OPML feed you subscribed contains no feeds. Please fill it with feeds, and try again."));
 		} else if (type == "googlereader") {
@@ -845,7 +914,7 @@ void controller::usage(char * argv0) {
 		{ 'C', _("<configfile>"), _("read configuration from <configfile>") },
 		{ 'X', "", _("clean up cache thoroughly") },
 		{ 'x', _("<command>..."), _("execute list of commands") },
-		{ 'o', "", _("activate offline mode (only applies to bloglines synchronization mode)") },
+		{ 'o', "", _("activate offline mode (only applies to Google Reader synchronization mode)") },
 		{ 'q', "", _("quiet startup") },
 		{ 'v', "", _("get version information") },
 		{ 'l', _("<loglevel>"), _("write a log with a certain loglevel (valid values: 1 to 6)") },

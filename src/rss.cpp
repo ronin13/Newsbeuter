@@ -22,7 +22,7 @@
 
 namespace newsbeuter {
 
-rss_item::rss_item(cache * c) : unread_(true), ch(c), enqueued_(false), deleted_(0), idx(0), override_unread_(false) {
+rss_item::rss_item(cache * c) : unread_(true), ch(c), enqueued_(false), deleted_(0), idx(0), override_unread_(false), size_(0) {
 	// LOG(LOG_CRITICAL, "new rss_item");
 }
 
@@ -63,8 +63,12 @@ void rss_item::set_description(const std::string& d) {
 	description_ = d; 
 }
 
+void rss_item::set_size(unsigned int size) {
+	size_ = size;
+}
+
 std::string rss_item::length() const {
-    std::string::size_type l = description_.length(); // get length from raw!
+	std::string::size_type l(size_);
 	if (!l)
 		return "";
 	if (l < 1000)
@@ -201,12 +205,16 @@ std::string rss_feed::description() const {
 
 std::tr1::shared_ptr<rss_item> rss_feed::get_item_by_guid(const std::string& guid) {
 	scope_mutex lock(&item_mutex);
+	return get_item_by_guid_unlocked(guid);
+}
+
+std::tr1::shared_ptr<rss_item> rss_feed::get_item_by_guid_unlocked(const std::string& guid) {
 	for (std::vector<std::tr1::shared_ptr<rss_item> >::iterator it=items_.begin();it!=items_.end();++it) {
 		if ((*it)->guid() == guid) {
 			return *it;
 		}
 	}
-	LOG(LOG_DEBUG, "rss_feed::get_item_by_guid: hit dummy item!");
+	LOG(LOG_DEBUG, "rss_feed::get_item_by_guid_unlocked: hit dummy item!");
 	// abort();
 	return std::tr1::shared_ptr<rss_item>(new rss_item(ch)); // should never happen!
 }
@@ -589,6 +597,18 @@ std::string rss_feed::get_status() {
 		case DL_ERROR: return "x";
 		default: return "?";
 	}
+}
+
+void rss_feed::unload() {
+	scope_mutex lock(&item_mutex);
+	for (std::vector<std::tr1::shared_ptr<rss_item> >::iterator it=items_.begin();it!=items_.end();it++) {
+		(*it)->unload();
+	}
+}
+
+void rss_feed::load() {
+	scope_mutex lock(&item_mutex);
+	ch->fetch_descriptions(this);
 }
 
 

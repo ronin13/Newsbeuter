@@ -68,10 +68,14 @@ namespace newsbeuter {
 
 			bool get_next_unread(itemlist_formaction * itemlist, itemview_formaction * itemview = NULL);
 			bool get_previous_unread(itemlist_formaction * itemlist, itemview_formaction * itemview = NULL);
+			bool get_next(itemlist_formaction * itemlist, itemview_formaction * itemview = NULL);
+			bool get_previous(itemlist_formaction * itemlist, itemview_formaction * itemview = NULL);
 			bool get_random_unread(itemlist_formaction * itemlist, itemview_formaction * itemview = NULL);
 
 			bool get_next_unread_feed(itemlist_formaction * itemlist);
 			bool get_prev_unread_feed(itemlist_formaction * itemlist);
+			bool get_next_feed(itemlist_formaction * itemlist);
+			bool get_prev_feed(itemlist_formaction * itemlist);
 
 			void set_colors(std::map<std::string,std::string>& fg_colors, std::map<std::string,std::string>& bg_colors, std::map<std::string,std::vector<std::string> >& attributes);
 

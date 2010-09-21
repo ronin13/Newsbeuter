@@ -39,6 +39,7 @@ namespace newsbeuter {
 			std::string description() const;
 			std::string description_raw() const { return description_; }
 			void set_description(const std::string& d);
+			void set_size(unsigned int size);
 			
 			std::string length() const;
 			std::string pubDate() const;
@@ -96,6 +97,8 @@ namespace newsbeuter {
 			inline void set_override_unread(bool b) { override_unread_ = b; }
 			inline bool override_unread() { return override_unread_; }
 
+			inline void unload() { description_.clear(); }
+
 		private:
 			std::string title_;
 			std::string link_;
@@ -116,6 +119,7 @@ namespace newsbeuter {
 			unsigned int idx;
 			std::string base;
 			bool override_unread_;
+			unsigned int size_;
 	};
 
 	class rss_feed : public matchable {
@@ -140,6 +144,7 @@ namespace newsbeuter {
 			inline std::vector<std::tr1::shared_ptr<rss_item> >& items() { return items_; }
 
 			std::tr1::shared_ptr<rss_item> get_item_by_guid(const std::string& guid);
+			std::tr1::shared_ptr<rss_item> get_item_by_guid_unlocked(const std::string& guid);
 			
 			inline const std::string& rssurl() const { return rssurl_; }
 			void set_rssurl(const std::string& u);
@@ -184,6 +189,9 @@ namespace newsbeuter {
 
 			inline void reset_status() { status_ = TO_BE_DOWNLOADED; }
 			inline void set_status(dl_status st) { status_ = st; }
+
+			void unload();
+			void load();
 
 			mutex item_mutex; // this is ugly, but makes it possible to lock items use e.g. from the cache class
 		private:

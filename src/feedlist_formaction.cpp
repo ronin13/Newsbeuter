@@ -153,6 +153,7 @@ void feedlist_formaction::process_operation(operation op, bool automatic, std::v
 		case OP_OPENINBROWSER: {
 				std::tr1::shared_ptr<rss_feed> feed = v->get_ctrl()->get_feed(pos);
 				if (feed) {
+					LOG(LOG_INFO, "feedlist_formaction: opening feed at position `%s': %s", feedpos.c_str(), feed->link().c_str());
 					v->open_in_browser(feed->link());
 				}
 			}
@@ -202,7 +203,7 @@ void feedlist_formaction::process_operation(operation op, bool automatic, std::v
 			break;
 		case OP_NEXTUNREAD: {
 				unsigned int local_tmp;
-				LOG(LOG_INFO, "feedlist_formaction: jumping to next unred feed");
+				LOG(LOG_INFO, "feedlist_formaction: jumping to next unread feed");
 				if (!jump_to_next_unread_feed(local_tmp)) {
 					v->show_error(_("No feeds with unread items."));
 				}
@@ -210,9 +211,25 @@ void feedlist_formaction::process_operation(operation op, bool automatic, std::v
 			break;
 		case OP_PREVUNREAD: {
 				unsigned int local_tmp;
-				LOG(LOG_INFO, "feedlist_formaction: jumping to previous unred feed");
+				LOG(LOG_INFO, "feedlist_formaction: jumping to previous unread feed");
 				if (!jump_to_previous_unread_feed(local_tmp)) {
 					v->show_error(_("No feeds with unread items."));
+				}
+			}
+			break;
+		case OP_NEXT: {
+				unsigned int local_tmp;
+				LOG(LOG_INFO, "feedlist_formaction: jumping to next feed");
+				if (!jump_to_next_feed(local_tmp)) {
+					v->show_error(_("Already on last feed."));
+				}
+			}
+			break;
+		case OP_PREV: {
+				unsigned int local_tmp;
+				LOG(LOG_INFO, "feedlist_formaction: jumping to previous feed");
+				if (!jump_to_previous_feed(local_tmp)) {
+					v->show_error(_("Already on first feed."));
 				}
 			}
 			break;
@@ -500,6 +517,50 @@ bool feedlist_formaction::jump_to_next_unread_feed(unsigned int& feedpos) {
 			feedpos = visible_feeds[i].second;
 			return true;
 		}
+	}
+	return false;
+}
+
+bool feedlist_formaction::jump_to_previous_feed(unsigned int& feedpos) {
+	unsigned int curpos;
+	std::istringstream is(f->get("feedpos"));
+	is >> curpos;
+
+	for (int i=curpos-1;i>=0;--i) {
+		LOG(LOG_DEBUG, "feedlist_formaction::jump_to_previous_feed: visible_feeds[%u]", i);
+		f->set("feedpos", utils::to_s(i));
+		feedpos = visible_feeds[i].second;
+		return true;
+	}
+	return false; // not sure if we should exit here or continue
+	// wrap to last feed
+	for (int i=visible_feeds.size()-1;i>=static_cast<int>(curpos);--i) {
+		LOG(LOG_DEBUG, "feedlist_formaction::jump_to_previous_feed: visible_feeds[%u]", i);
+		f->set("feedpos", utils::to_s(i));
+		feedpos = visible_feeds[i].second;
+		return true;
+	}
+	return false;
+}
+
+bool feedlist_formaction::jump_to_next_feed(unsigned int& feedpos) {
+	unsigned int curpos;
+	std::istringstream is(f->get("feedpos"));
+	is >> curpos;
+
+	for (unsigned int i=curpos+1;i<visible_feeds.size();++i) {
+		LOG(LOG_DEBUG, "feedlist_formaction::jump_to_next_feed: visible_feeds[%u]", i);
+		f->set("feedpos", utils::to_s(i));
+		feedpos = visible_feeds[i].second;
+		return true;
+	}
+	return false; // not sure if we should exit here or continue
+	// wrap to first feed
+	for (unsigned int i=0;i<=curpos;++i) {
+		LOG(LOG_DEBUG, "feedlist_formaction::jump_to_next_feed: visible_feeds[%u]", i);
+		f->set("feedpos", utils::to_s(i));
+		feedpos = visible_feeds[i].second;
+		return true;
 	}
 	return false;
 }
