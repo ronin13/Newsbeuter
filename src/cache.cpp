@@ -1,3 +1,4 @@
+#include <controller.h>
 #include <cache.h>
 #include <sqlite3.h>
 #include <cstdlib>
@@ -121,36 +122,6 @@ static int rssitem_callback(void * myfeed, int argc, char ** argv, char ** /* az
 	return 0;
 }
 
-static int rssitemvector_callback(void * vector, int argc, char ** argv, char ** /* azColName */) {
-	std::vector<std::tr1::shared_ptr<rss_item> >* items = static_cast<std::vector<std::tr1::shared_ptr<rss_item> > *>(vector);
-
-	assert (argc == 13);
-	std::tr1::shared_ptr<rss_item> item(new rss_item(NULL));
-	item->set_guid(argv[0]);
-	item->set_title(argv[1]);
-	item->set_author(argv[2]);
-	item->set_link(argv[3]);
-	
-	std::istringstream is(argv[4]);
-	time_t t;
-	is >> t;
-	item->set_pubDate(t);
-	
-	item->set_size(utils::to_u(argv[5]));
-	item->set_unread((std::string("1") == argv[6]));
-
-	item->set_feedurl(argv[7]);
-
-	item->set_enclosure_url(argv[8] ? argv[8] : "");
-	item->set_enclosure_type(argv[9] ? argv[9] : "");
-	item->set_enqueued((std::string("1") == (argv[10] ? argv[10] : "")));
-	item->set_flags(argv[11] ? argv[11] : "");
-	item->set_base(argv[12] ? argv[12] : "");
-
-	items->push_back(item);
-	return 0;
-}
-
 static int fill_content_callback(void * myfeed, int argc, char ** argv, char ** /* azColName */) {
 	rss_feed * feed = static_cast<rss_feed *>(myfeed);
 	assert(argc == 2);
@@ -258,6 +229,13 @@ void cache::populate_tables() {
 						" content VARCHAR(65535) NOT NULL,"
 						" unread INTEGER(1) NOT NULL );", NULL, NULL, NULL);
 	LOG(LOG_DEBUG, "cache::populate_tables: CREATE TABLE rss_item rc = %d", rc);
+
+	rc = sqlite3_exec(db, "CREATE TABLE google_replay ( "
+						" id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, "
+						" guid VARCHAR(64) NOT NULL, "
+						" state INTEGER NOT NULL, "
+						" ts INTEGER NOT NULL );", NULL, NULL, NULL);
+	LOG(LOG_DEBUG, "cache::populate_tables: CREATE TABLE google_replay rc = %d", rc);
 
 	/* we need to do these ALTER TABLE statements because we need to store additional data for the podcast support */
 	rc = sqlite3_exec(db, "ALTER TABLE rss_item ADD enclosure_url VARCHAR(1024);", NULL, NULL, NULL);
@@ -496,37 +474,6 @@ void cache::internalize_rssfeed(std::tr1::shared_ptr<rss_feed> feed, rss_ignores
 
 }
 
-void cache::get_latest_items(std::vector<std::tr1::shared_ptr<rss_item> >& items, unsigned int limit) {
-	scope_mutex lock(&mtx);
-	std::string query = prepare_query("SELECT guid,title,author,url,pubDate,length(content),unread,feedurl,enclosure_url,enclosure_type,enqueued,flags,base "
-									"FROM rss_item WHERE deleted = 0 ORDER BY pubDate DESC, id DESC LIMIT %d;", limit);
-	LOG(LOG_DEBUG, "running query: %s", query.c_str());
-	int rc = sqlite3_exec(db, query.c_str(), rssitemvector_callback, &items, NULL);
-	if (rc != SQLITE_OK) {
-		LOG(LOG_CRITICAL,"query \"%s\" failed: error = %d", query.c_str(), rc);
-		throw dbexception(db);
-	}
-}
-
-std::tr1::shared_ptr<rss_feed> cache::get_feed_by_url(const std::string& feedurl) {
-	std::tr1::shared_ptr<rss_feed> feed(new rss_feed(this));
-	std::string query;
-	int rc;
-
-	scope_mutex lock(&mtx);
-
-	query = prepare_query("SELECT title, url, is_rtl FROM rss_feed WHERE rssurl = '%q';",feedurl.c_str());
-	LOG(LOG_DEBUG,"running query: %s",query.c_str());
-
-	rc = sqlite3_exec(db,query.c_str(),rssfeed_callback,&feed,NULL);
-	if (rc != SQLITE_OK) {
-		LOG(LOG_CRITICAL,"query \"%s\" failed: error = %d", query.c_str(), rc);
-		throw dbexception(db);
-	}
-
-	return feed;
-}
-
 std::vector<std::tr1::shared_ptr<rss_item> > cache::search_for_items(const std::string& querystr, const std::string& feedurl) {
 	std::string query;
 	std::vector<std::tr1::shared_ptr<rss_item> > items;
@@ -629,12 +576,6 @@ void cache::cleanup_cache(std::vector<std::tr1::shared_ptr<rss_feed> >& feeds) {
 	}
 }
 
-/* this function writes an rss_item to the database, also checking whether this item already exists in the database */
-void cache::update_rssitem(std::tr1::shared_ptr<rss_item> item, const std::string& feedurl, bool reset_unread) {
-	scope_mutex lock(&mtx);
-	update_rssitem_unlocked(item, feedurl, reset_unread);
-}
-
 void cache::update_rssitem_unlocked(std::tr1::shared_ptr<rss_item> item, const std::string& feedurl, bool reset_unread) {
 	std::string query = prepare_query("SELECT count(*) FROM rss_item WHERE guid = '%q';",item->guid().c_str());
 	cb_handler count_cbh;
@@ -654,6 +595,7 @@ void cache::update_rssitem_unlocked(std::tr1::shared_ptr<rss_item> item, const s
 				throw dbexception(db);
 			}
 			if (content != item->description_raw()) {
+				LOG(LOG_DEBUG, "cache::update_rssitem_unlocked: '%s' is different from '%s'", content.c_str(), item->description_raw().c_str());
 				query = prepare_query("UPDATE rss_item SET unread = 1 WHERE guid = '%q';", item->guid().c_str());
 				rc = sqlite3_exec(db, query.c_str(), NULL, NULL, NULL);
 				if (rc != SQLITE_OK) {
@@ -947,14 +889,49 @@ void cache::fetch_descriptions(rss_feed * feed) {
 	}
 }
 
+void cache::record_google_replay(const std::string& guid, unsigned int state) {
+	scope_mutex lock(&mtx);
 
-scope_transaction::scope_transaction(sqlite3 * db) : d(db) {
-	int rc = sqlite3_exec(d, "BEGIN TRANSACTION", NULL, NULL, NULL);
-	LOG(LOG_DEBUG,"scope_transaction: started transaction for handle: %p, rc = %d", d, rc);
+	std::string query = prepare_query("INSERT INTO google_replay ( guid, state, ts ) VALUES ( '%q', %u, %u );", guid.c_str(), state, (unsigned int)time(NULL));
+
+	int rc = sqlite3_exec(db, query.c_str(), NULL, NULL, NULL);
+	LOG(LOG_DEBUG, "ran SQL statement: %s rc = %d", query.c_str(), rc);
 }
-scope_transaction::~scope_transaction() {
-	int rc = sqlite3_exec(d, "END TRANSACTION", NULL, NULL, NULL);
-	LOG(LOG_DEBUG,"scope_transaction: ended transaction for handle: %p, rc = %d", d, rc);
+
+void cache::delete_google_replay_by_guid(const std::vector<std::string>& guids) {
+	std::vector<std::string> escaped_guids;
+
+	for (std::vector<std::string>::const_iterator it=guids.begin();it!=guids.end();it++) {
+		escaped_guids.push_back(prepare_query("'%q'", it->c_str()));
+	}
+
+	std::string query = prepare_query("DELETE FROM google_replay WHERE guid IN ( %s );", utils::join(escaped_guids, ", ").c_str());
+
+	int rc = sqlite3_exec(db, query.c_str(), NULL, NULL, NULL);
+	LOG(LOG_DEBUG, "ran SQL statement: %s rc = %d", query.c_str(), rc);
+}
+
+static int google_replay_cb(void * result, int argc, char ** argv, char ** /* azColName */) {
+	std::vector<google_replay_pair> * google_replay_data = static_cast<std::vector<google_replay_pair> *>(result);
+	assert(argc == 2);
+
+	google_replay_data->push_back(google_replay_pair(argv[0], utils::to_u(argv[1])));
+
+	return 0;
+}
+
+std::vector<google_replay_pair> cache::get_google_replay() {
+	std::vector<google_replay_pair> result;
+
+	std::string query = "SELECT guid, state FROM google_replay ORDER BY ts;";
+
+	int rc = sqlite3_exec(db, query.c_str(), google_replay_cb, &result, NULL);
+	if (rc != SQLITE_OK) {
+		LOG(LOG_CRITICAL, "query \"%s\" failed: error = %d", query.c_str(), rc);
+		throw dbexception(db);
+	}
+
+	return result;
 }
 
 }
